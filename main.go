@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"log"
 	"os"
 	"strconv"
+	"time"
 
+	"github.com/faiface/beep/speaker"
+	"github.com/faiface/beep/wav"
 	"github.com/go-ole/go-ole"
 	"github.com/moutend/go-wca/pkg/wca"
 	"golang.design/x/hotkey"
-	"golang.design/x/hotkey/mainthread"
+	"golang.design/x/mainthread"
 )
 
 type Device struct {
@@ -28,23 +33,21 @@ func hotkeyInit() {
 	err := MuteHotKey.Register()
 	if err != nil {
 		log.Panicln("hotkey: failed to register hotkey:", err)
-		return
 	}
 	ExitHotKey = hotkey.New([]hotkey.Modifier{hotkey.ModCtrl, hotkey.ModShift}, hotkey.KeyU)
 	err = ExitHotKey.Register()
 	if err != nil {
 		log.Panicln("hotkey: failed to register hotkey:", err)
-		return
 	}
 
 }
 
-func mute(index uint64, mmde *wca.IMMDeviceEnumerator) {
+func mute(index uint64, mmde *wca.IMMDeviceEnumerator) bool {
 
 	var selectedDevice *wca.IMMDevice
 	if index == 0 {
 		if err := mmde.GetDefaultAudioEndpoint(wca.ECapture, wca.ECommunications, &selectedDevice); err != nil {
-			return
+			log.Panicln(err)
 		}
 	} else {
 		selectedDevice = Devices[index-1].device
@@ -53,7 +56,7 @@ func mute(index uint64, mmde *wca.IMMDeviceEnumerator) {
 
 	var aev *wca.IAudioEndpointVolume
 	if err := selectedDevice.Activate(wca.IID_IAudioEndpointVolume, wca.CLSCTX_ALL, nil, &aev); err != nil {
-		return
+		log.Panicln(err)
 	}
 	defer aev.Release()
 
@@ -61,8 +64,10 @@ func mute(index uint64, mmde *wca.IMMDeviceEnumerator) {
 	aev.GetMute(&isMuted)
 
 	if err := aev.SetMute(!isMuted, nil); err != nil {
-		return
+		log.Panicln(err)
 	}
+
+	return !isMuted
 }
 
 func checkArgs() uint64 {
@@ -90,18 +95,18 @@ func main() {
 
 	var mmde *wca.IMMDeviceEnumerator
 	if err = wca.CoCreateInstance(wca.CLSID_MMDeviceEnumerator, 0, wca.CLSCTX_ALL, wca.IID_IMMDeviceEnumerator, &mmde); err != nil {
-		return
+		log.Panicln(err)
 	}
 	defer mmde.Release()
 
 	var mmdc *wca.IMMDeviceCollection
 	if err = mmde.EnumAudioEndpoints(wca.ECapture, wca.DEVICE_STATE_ACTIVE, &mmdc); err != nil {
-		return
+		log.Panicln(err)
 	}
 	defer mmdc.Release()
 
 	if err = mmdc.GetCount(&TotalDevices); err != nil {
-		return
+		log.Panicln(err)
 	}
 
 	var tmpDevice *wca.IMMDevice
@@ -147,10 +152,29 @@ func main() {
 		}
 	case "mute":
 		{
-			mute(checkArgs(), mmde)
+			_ = mute(checkArgs(), mmde)
 		}
 	case "lmute":
 		{
+			decodedMutedWav, _ := base64.RawStdEncoding.DecodeString(MutedWav)
+			mutedStreamer, format, err := wav.Decode(bytes.NewReader(decodedMutedWav))
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer mutedStreamer.Close()
+
+			decodedUnmutedWav, _ := base64.RawStdEncoding.DecodeString(UnmutedWav)
+			unmutedStreamer, _, err := wav.Decode(bytes.NewReader(decodedUnmutedWav))
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer unmutedStreamer.Close()
+
+			err = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+			if err != nil {
+				log.Println("Won't be able to play audio!")
+			}
+
 			arg2 := checkArgs()
 			mainthread.Init(hotkeyInit)
 			defer func() {
@@ -161,7 +185,14 @@ func main() {
 			for {
 				select {
 				case <-MuteHotKey.Keydown():
-					mute(arg2, mmde)
+					isMuted := mute(arg2, mmde)
+					if isMuted {
+						mutedStreamer.Seek(2)
+						speaker.Play(mutedStreamer)
+					} else {
+						unmutedStreamer.Seek(2)
+						speaker.Play(unmutedStreamer)
+					}
 				case <-ExitHotKey.Keydown():
 					return
 				}
