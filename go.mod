@@ -7,4 +7,8 @@ require (
 	github.com/moutend/go-wca v0.3.0
 )
 
-require golang.org/x/sys v0.1.0 // indirect
+require (
+	golang.design/x/hotkey v0.4.1 // indirect
+	golang.design/x/mainthread v0.3.0 // indirect
+	golang.org/x/sys v0.1.0 // indirect
+)
