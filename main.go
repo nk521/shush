@@ -112,7 +112,7 @@ func main() {
 	for i := 0; i < int(TotalDevices); i++ {
 		mmdc.Item(uint32(i), &tmpDevice)
 		if err = tmpDevice.OpenPropertyStore(wca.STGM_READ, &tmpDeviceProp); err != nil {
-			panic(err)
+			log.Panicln(err)
 		}
 		// v.GetId(&tmpName)
 		if err = tmpDeviceProp.GetValue(&wca.PKEY_Device_FriendlyName, &tmpDevicePropVariant); err != nil {
@@ -134,7 +134,8 @@ func main() {
 	}()
 
 	if len(os.Args) < 2 {
-		log.Panicln("Usage: `", os.Args[0], "[ list | mute | lmute ] [0 | 1 ...] `")
+		log.Println("Usage: `shush.exe [ list | mute | lmute ] [0 | 1 ...] `")
+		os.Exit(-1)
 	}
 
 	switch os.Args[1] {
